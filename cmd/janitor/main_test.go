@@ -1,6 +1,7 @@
 package main
 
 import (
+	main2 "aws-lambda-janitor"
 	"context"
 	"errors"
 	"testing"
@@ -54,7 +55,7 @@ func TestListAllFunctions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -95,7 +96,7 @@ func TestListAllFunctionsError(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -113,7 +114,7 @@ func TestListAllVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -158,7 +159,7 @@ func TestGetAliasedVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -190,7 +191,7 @@ func TestCleanupFunctionKeepsRecentVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -230,7 +231,7 @@ func TestCleanupFunctionDeletesOldVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -276,7 +277,7 @@ func TestCleanupFunctionProtectsAliasedVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -331,7 +332,7 @@ func TestCleanupFunctionNeverDeletesLatest(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -369,7 +370,7 @@ func TestDeleteVersion(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -392,7 +393,7 @@ func TestDeleteVersionError(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 
@@ -413,7 +414,7 @@ func TestRun(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
 
-	janitor := &LambdaJanitor{
+	janitor := &main2.LambdaJanitor{
 		client: mockClient,
 	}
 

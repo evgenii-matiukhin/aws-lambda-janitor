@@ -1,0 +1,87 @@
+name: Deploy Lambda Janitor
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # Required for OIDC authentication
+  contents: read    # Required to checkout code
+
+env:
+  AWS_REGION: us-east-1
+  GITHUB_ORG: no-org
+  GITHUB_REPO: aws-lambda-janitor
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Install AWS CDK
+        run: npm install -g aws-cdk
+
+      - name: Configure AWS credentials from OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          role-session-name: GitHubActions-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+      - name: Install Go dependencies
+        run: |
+          go mod download
+          go mod tidy
+
+      - name: Run tests
+        run: |
+          go test -v ./...
+
+      - name: CDK Bootstrap (if needed)
+        run: |
+          cdk bootstrap aws://${{ secrets.AWS_ACCOUNT_ID }}/${{ env.AWS_REGION }} || true
+
+      - name: CDK Synth
+        run: |
+          cdk synth --all
+
+      - name: CDK Deploy
+        run: |
+          cdk deploy --all --require-approval never
+        env:
+          GITHUB_ORG: ${{ env.GITHUB_ORG }}
+          GITHUB_REPO: ${{ env.GITHUB_REPO }}
+          DRY_RUN: "false"
+
+      - name: Output deployment info
+        run: |
+          echo "Deployment completed successfully!"
+          aws cloudformation describe-stacks --stack-name lambda-janitor --query 'Stacks[0].Outputs' --output table || true
+          aws cloudformation describe-stacks --stack-name lambda-janitor-oidc --query 'Stacks[0].Outputs' --output table || true
+

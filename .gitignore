@@ -1,4 +1,64 @@
-.idea
+# CDK
+cdk.out/
+cdk.context.json
+.cdk.staging/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+bootstrap
+aws-lambda-janitor
+
+# Test output
+test_output.txt
+coverage.out
+*.coverprofile
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
 *.iml
 
-/.idea/
+# Build artifacts
+dist/
+build/
+*.zip
+function.zip
+response.json
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# AWS
+.aws-sam/
+samconfig.toml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node (for CDK)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Terraform (if any)
+*.tfstate
+*.tfstate.backup
+.terraform/
+

@@ -27,7 +27,7 @@ The Lambda Janitor scans all Lambda functions in your AWS account and removes ol
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd stackla-janitor-lambda
+cd aws-lambda-janitor
 
 # Install dependencies
 go mod download
@@ -317,7 +317,7 @@ See [LICENSE](LICENSE) file for details.
 
 ## Authors
 
-- Stackla Team
+- Evgenii Matiukhin
 
 ## Changelog
 

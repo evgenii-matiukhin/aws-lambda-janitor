@@ -21,7 +21,7 @@ var (
 )
 
 const (
-	versionsToKeep = 5
+	versionsToKeep = 3 // Keep 3 most recent versions as per CDK requirements
 )
 
 func init() {
