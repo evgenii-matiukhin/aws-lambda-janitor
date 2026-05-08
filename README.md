@@ -10,7 +10,7 @@ The Lambda Janitor scans all Lambda functions in your AWS account and removes ol
 
 - 🔄 **Automatic Cleanup**: Scans all Lambda functions in the region
 - 🛡️ **Smart Protection**: Never deletes `$LATEST` or aliased versions
-- 📦 **Retention Policy**: Keeps the 5 most recent versions by default
+- 📦 **Retention Policy**: Keeps the 3 most recent versions by default
 - ⚡ **Concurrent Processing**: Uses goroutines for fast, parallel execution
 - 🔍 **Dry Run Mode**: Test without making actual deletions
 - 📊 **Structured Logging**: JSON-formatted logs with detailed context
@@ -33,7 +33,7 @@ cd aws-lambda-janitor
 go mod download
 
 # Build
-go build -o janitor main.go
+go build -o janitor ./cmd/janitor
 ```
 
 ## AWS Permissions
@@ -72,12 +72,10 @@ The Lambda function requires the following IAM permissions:
 
 ### Retention Policy
 
-The default retention policy keeps **5 most recent versions**. To change this, modify the `versionsToKeep` constant in `main.go`:
+The default retention policy keeps **3 most recent versions**. To change this, modify the `versionsToKeep` constant in `cmd/janitor/main.go`:
 
 ```go
-const (
-    versionsToKeep = 5  // Change this value
-)
+const versionsToKeep = 3  // Change this value
 ```
 
 ## Usage
@@ -91,22 +89,22 @@ export AWS_ACCESS_KEY_ID=your-access-key
 export AWS_SECRET_ACCESS_KEY=your-secret-key
 
 # Run in dry-run mode (recommended for first run)
-LOCAL_MODE=true DRY_RUN=true go run main.go
+LOCAL_MODE=true DRY_RUN=true go run ./cmd/janitor
 
 # Run with actual deletions
-LOCAL_MODE=true go run main.go
+LOCAL_MODE=true go run ./cmd/janitor
 
 # Or use environment variables
 export LOCAL_MODE=true
 export DRY_RUN=true
-go run main.go
+go run ./cmd/janitor
 ```
 
 ### Deploy to AWS Lambda
 
 ```bash
 # Build for Linux
-GOOS=linux GOARCH=amd64 go build -o bootstrap main.go
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o bootstrap ./cmd/janitor
 zip function.zip bootstrap
 
 # Deploy using AWS CLI
@@ -162,7 +160,7 @@ aws lambda add-permission \
    - Identifies versions to protect:
      - `$LATEST` version
      - Any version associated with an alias (e.g., `prod`, `staging`)
-     - The 5 most recent versions
+     - The 3 most recent versions
    - Deletes remaining old versions
 4. **Logging**: Outputs structured JSON logs with function names, versions, and status
 
@@ -219,7 +217,7 @@ The janitor will **NEVER** delete:
 
 1. ✅ The `$LATEST` version
 2. ✅ Any version associated with an alias (e.g., `prod`, `staging`, `dev`)
-3. ✅ The 5 most recent versions (configurable)
+3. ✅ The 3 most recent versions (configurable)
 
 ## Testing
 
@@ -227,19 +225,19 @@ Run the comprehensive test suite:
 
 ```bash
 # Run all tests
-go test -v
+go test -v ./cmd/janitor/...
 
 # Run with coverage
-go test -cover -coverprofile=coverage.out
+go test -cover -coverprofile=coverage.out ./cmd/janitor/...
 
 # View coverage report
 go tool cover -html=coverage.out
 
 # Run specific test
-go test -run TestCleanupFunctionProtectsAliasedVersions -v
+go test -run TestCleanupFunctionProtectsAliasedVersions -v ./cmd/janitor/...
 
 # Run with race detection
-go test -race -v
+go test -race -v ./cmd/janitor/...
 ```
 
 ### Test Coverage
@@ -278,7 +276,7 @@ fields @timestamp, msg, function, version, status
 
 ### Issue: Too many versions being deleted
 
-**Solution**: Increase the `versionsToKeep` constant or ensure critical versions have aliases.
+**Solution**: Increase the `versionsToKeep` constant in `cmd/janitor/main.go`, or ensure critical versions have aliases.
 
 ### Issue: Rate limiting errors
 
@@ -329,7 +327,7 @@ See [LICENSE](LICENSE) file for details.
 - Structured JSON logging
 - Comprehensive test suite
 - Protection for $LATEST and aliased versions
-- Configurable retention policy (default: 5 versions)
+- Configurable retention policy (default: 3 versions)
 
 ## Support
 

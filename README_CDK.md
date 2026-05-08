@@ -37,13 +37,16 @@ A complete AWS CDK project in Go that deploys a Lambda function to automatically
 .
 ├── cmd/
 │   └── janitor/
-│       └── main.go              # Lambda function code
+│       ├── main.go              # Lambda function code
+│       └── main_test.go         # Unit tests
 ├── infra/
 │   ├── oidc_stack.go           # OIDC Provider & IAM Role for GitHub
 │   └── janitor_stack.go        # Lambda Janitor service
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml          # GitHub Actions deployment workflow
+├── build.sh                    # Local build & test script
+├── deploy.sh                   # Local CDK deployment script
 ├── cdk.go                      # CDK app entry point
 ├── cdk.json                    # CDK configuration
 ├── go.mod                      # Go dependencies
@@ -184,11 +187,10 @@ cdk synth LambdaJanitorStack
 
 ```bash
 # Run in dry-run mode
-cd cmd/janitor
-LOCAL_MODE=true DRY_RUN=true go run main.go
+LOCAL_MODE=true DRY_RUN=true go run ./cmd/janitor
 
 # Run with actual deletions (use with caution)
-LOCAL_MODE=true go run main.go
+LOCAL_MODE=true go run ./cmd/janitor
 ```
 
 ### Invoke Deployed Lambda
@@ -275,13 +277,13 @@ Schedule: awsevents.Schedule_Cron(&awsevents.CronOptions{
 
 ```bash
 # Run all tests
-go test -v ./...
+go test -v ./cmd/janitor/...
 
 # Run tests with coverage
-go test -cover ./...
+go test -cover ./cmd/janitor/...
 
 # Run specific test
-go test -run TestCleanupFunction -v
+go test -run TestCleanupFunction -v ./cmd/janitor/...
 ```
 
 ## 🔄 Updating

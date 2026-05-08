@@ -15,27 +15,16 @@ import (
 	lambdaTypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 )
 
-var (
-	logger *slog.Logger
-	dryRun bool
-)
+var logger *slog.Logger
 
-const (
-	versionsToKeep = 3 // Keep 3 most recent versions as per CDK requirements
-)
+const versionsToKeep = 3 // CDK requires keeping recent published versions
 
 func init() {
 	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
-
-	dryRun = os.Getenv("DRY_RUN") == "true"
-	if dryRun {
-		logger.Info("Running in DRY RUN mode - no deletions will be performed")
-	}
 }
 
-// LambdaAPI defines the interface for Lambda operations
 type LambdaAPI interface {
 	ListFunctions(ctx context.Context, input *lambda.ListFunctionsInput, opts ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
 	ListVersionsByFunction(ctx context.Context, input *lambda.ListVersionsByFunctionInput, opts ...func(*lambda.Options)) (*lambda.ListVersionsByFunctionOutput, error)
@@ -45,6 +34,7 @@ type LambdaAPI interface {
 
 type LambdaJanitor struct {
 	client LambdaAPI
+	dryRun bool
 }
 
 func NewLambdaJanitor(ctx context.Context) (*LambdaJanitor, error) {
@@ -53,28 +43,27 @@ func NewLambdaJanitor(ctx context.Context) (*LambdaJanitor, error) {
 		return nil, err
 	}
 
+	dryRun := os.Getenv("DRY_RUN") == "true"
+	if dryRun {
+		logger.Info("Running in DRY RUN mode - no deletions will be performed")
+	}
+
 	return &LambdaJanitor{
 		client: lambda.NewFromConfig(cfg),
+		dryRun: dryRun,
 	}, nil
 }
 
-// listAllFunctions handles pagination to get all Lambda functions
 func (j *LambdaJanitor) listAllFunctions(ctx context.Context) ([]lambdaTypes.FunctionConfiguration, error) {
 	var functions []lambdaTypes.FunctionConfiguration
 	var nextMarker *string
 
 	for {
-		input := &lambda.ListFunctionsInput{
-			Marker: nextMarker,
-		}
-
-		output, err := j.client.ListFunctions(ctx, input)
+		output, err := j.client.ListFunctions(ctx, &lambda.ListFunctionsInput{Marker: nextMarker})
 		if err != nil {
 			return nil, err
 		}
-
 		functions = append(functions, output.Functions...)
-
 		if output.NextMarker == nil {
 			break
 		}
@@ -85,24 +74,19 @@ func (j *LambdaJanitor) listAllFunctions(ctx context.Context) ([]lambdaTypes.Fun
 	return functions, nil
 }
 
-// listAllVersions handles pagination to get all versions of a function
 func (j *LambdaJanitor) listAllVersions(ctx context.Context, functionName string) ([]lambdaTypes.FunctionConfiguration, error) {
 	var versions []lambdaTypes.FunctionConfiguration
 	var nextMarker *string
 
 	for {
-		input := &lambda.ListVersionsByFunctionInput{
+		output, err := j.client.ListVersionsByFunction(ctx, &lambda.ListVersionsByFunctionInput{
 			FunctionName: aws.String(functionName),
 			Marker:       nextMarker,
-		}
-
-		output, err := j.client.ListVersionsByFunction(ctx, input)
+		})
 		if err != nil {
 			return nil, err
 		}
-
 		versions = append(versions, output.Versions...)
-
 		if output.NextMarker == nil {
 			break
 		}
@@ -112,22 +96,18 @@ func (j *LambdaJanitor) listAllVersions(ctx context.Context, functionName string
 	return versions, nil
 }
 
-// getAliasedVersions returns a set of version numbers that have aliases
 func (j *LambdaJanitor) getAliasedVersions(ctx context.Context, functionName string) (map[string]bool, error) {
 	aliasedVersions := make(map[string]bool)
 	var nextMarker *string
 
 	for {
-		input := &lambda.ListAliasesInput{
+		output, err := j.client.ListAliases(ctx, &lambda.ListAliasesInput{
 			FunctionName: aws.String(functionName),
 			Marker:       nextMarker,
-		}
-
-		output, err := j.client.ListAliases(ctx, input)
+		})
 		if err != nil {
 			return nil, err
 		}
-
 		for _, alias := range output.Aliases {
 			if alias.FunctionVersion != nil {
 				aliasedVersions[*alias.FunctionVersion] = true
@@ -137,7 +117,6 @@ func (j *LambdaJanitor) getAliasedVersions(ctx context.Context, functionName str
 					"version", *alias.FunctionVersion)
 			}
 		}
-
 		if output.NextMarker == nil {
 			break
 		}
@@ -147,29 +126,22 @@ func (j *LambdaJanitor) getAliasedVersions(ctx context.Context, functionName str
 	return aliasedVersions, nil
 }
 
-// cleanupFunction processes a single function and deletes old versions
-// Returns the number of versions deleted
 func (j *LambdaJanitor) cleanupFunction(ctx context.Context, functionName string) (int, error) {
 	logger.Info("Processing function", "function", functionName)
 
-	// Get all versions
 	versions, err := j.listAllVersions(ctx, functionName)
 	if err != nil {
 		logger.Error("Failed to list versions", "function", functionName, "error", err)
 		return 0, err
 	}
 
-	// Get aliased versions
 	aliasedVersions, err := j.getAliasedVersions(ctx, functionName)
 	if err != nil {
 		logger.Error("Failed to list aliases", "function", functionName, "error", err)
 		return 0, err
 	}
 
-	// Filter out $LATEST and sort versions by number (descending)
 	var numericVersions []int
-	versionMap := make(map[int]lambdaTypes.FunctionConfiguration)
-
 	for _, version := range versions {
 		if version.Version != nil && *version.Version != "$LATEST" {
 			versionNum, err := strconv.Atoi(*version.Version)
@@ -177,11 +149,9 @@ func (j *LambdaJanitor) cleanupFunction(ctx context.Context, functionName string
 				continue
 			}
 			numericVersions = append(numericVersions, versionNum)
-			versionMap[versionNum] = version
 		}
 	}
 
-	// Sort in descending order (newest first)
 	sort.Sort(sort.Reverse(sort.IntSlice(numericVersions)))
 
 	logger.Info("Found versions",
@@ -189,35 +159,23 @@ func (j *LambdaJanitor) cleanupFunction(ctx context.Context, functionName string
 		"total_versions", len(numericVersions),
 		"aliased_count", len(aliasedVersions))
 
-	// Process versions for deletion
 	deletedCount := 0
 	skippedCount := 0
 
 	for i, versionNum := range numericVersions {
 		versionStr := strconv.Itoa(versionNum)
 
-		// Skip if it's in the top N most recent versions
 		if i < versionsToKeep {
-			logger.Info("Keeping recent version",
-				"function", functionName,
-				"version", versionStr,
-				"reason", "within_retention_period")
 			skippedCount++
 			continue
 		}
 
-		// Skip if version is aliased
 		if aliasedVersions[versionStr] {
-			logger.Info("Keeping aliased version",
-				"function", functionName,
-				"version", versionStr,
-				"reason", "has_alias")
 			skippedCount++
 			continue
 		}
 
-		// Delete the version
-		if dryRun {
+		if j.dryRun {
 			logger.Info("DRY RUN: Would delete version",
 				"function", functionName,
 				"version", versionStr,
@@ -248,30 +206,24 @@ func (j *LambdaJanitor) cleanupFunction(ctx context.Context, functionName string
 	return deletedCount, nil
 }
 
-// deleteVersion deletes a specific version of a Lambda function
 func (j *LambdaJanitor) deleteVersion(ctx context.Context, functionName, version string) error {
-	input := &lambda.DeleteFunctionInput{
+	_, err := j.client.DeleteFunction(ctx, &lambda.DeleteFunctionInput{
 		FunctionName: aws.String(functionName),
 		Qualifier:    aws.String(version),
-	}
-
-	_, err := j.client.DeleteFunction(ctx, input)
+	})
 	return err
 }
 
-// Run executes the janitor cleanup process
 func (j *LambdaJanitor) Run(ctx context.Context) error {
-	// List all functions
 	functions, err := j.listAllFunctions(ctx)
 	if err != nil {
 		logger.Error("Failed to list functions", "error", err)
 		return err
 	}
 
-	// Use WaitGroup for concurrent processing
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	semaphore := make(chan struct{}, 10) // Limit concurrent goroutines to 10
+	semaphore := make(chan struct{}, 10)
 	totalDeletedVersions := 0
 	functionsProcessed := 0
 
@@ -280,19 +232,16 @@ func (j *LambdaJanitor) Run(ctx context.Context) error {
 			continue
 		}
 
+		semaphore <- struct{}{}
 		wg.Add(1)
 		go func(functionName string) {
 			defer wg.Done()
-
-			// Acquire semaphore
-			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
 			deletedCount, err := j.cleanupFunction(ctx, functionName)
 			if err != nil {
 				logger.Error("Error cleaning function", "function", functionName, "error", err)
 			} else {
-				// Update counters in a thread-safe manner
 				mu.Lock()
 				totalDeletedVersions += deletedCount
 				functionsProcessed++
@@ -324,7 +273,6 @@ func handler(ctx context.Context) error {
 }
 
 func main() {
-	// Check if running locally (not in Lambda environment)
 	if os.Getenv("LOCAL_MODE") == "true" || os.Getenv("AWS_LAMBDA_RUNTIME_API") == "" {
 		logger.Info("Running in local mode")
 		ctx := context.Background()
@@ -336,6 +284,5 @@ func main() {
 		return
 	}
 
-	// Running in Lambda environment
 	l.Start(handler)
 }

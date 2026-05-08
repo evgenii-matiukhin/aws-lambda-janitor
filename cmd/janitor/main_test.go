@@ -1,7 +1,6 @@
 package main
 
 import (
-	main2 "aws-lambda-janitor"
 	"context"
 	"errors"
 	"testing"
@@ -13,7 +12,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// MockLambdaClient is a mock implementation of the Lambda client
 type MockLambdaClient struct {
 	mock.Mock
 }
@@ -50,16 +48,15 @@ func (m *MockLambdaClient) DeleteFunction(ctx context.Context, input *lambda.Del
 	return args.Get(0).(*lambda.DeleteFunctionOutput), args.Error(1)
 }
 
-// Test listAllFunctions with pagination
+func newTestJanitor(mockClient *MockLambdaClient) *LambdaJanitor {
+	return &LambdaJanitor{client: mockClient, dryRun: false}
+}
+
 func TestListAllFunctions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
+	janitor := newTestJanitor(mockClient)
 
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
-
-	// First page
 	mockClient.On("ListFunctions", ctx, mock.MatchedBy(func(input *lambda.ListFunctionsInput) bool {
 		return input.Marker == nil
 	})).Return(&lambda.ListFunctionsOutput{
@@ -70,7 +67,6 @@ func TestListAllFunctions(t *testing.T) {
 		NextMarker: aws.String("marker1"),
 	}, nil)
 
-	// Second page
 	mockClient.On("ListFunctions", ctx, mock.MatchedBy(func(input *lambda.ListFunctionsInput) bool {
 		return input.Marker != nil && *input.Marker == "marker1"
 	})).Return(&lambda.ListFunctionsOutput{
@@ -91,14 +87,10 @@ func TestListAllFunctions(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test listAllFunctions error handling
 func TestListAllFunctionsError(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	mockClient.On("ListFunctions", ctx, mock.Anything).Return(nil, errors.New("API error"))
 
@@ -109,18 +101,13 @@ func TestListAllFunctionsError(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test listAllVersions with pagination
 func TestListAllVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
-	// First page
 	mockClient.On("ListVersionsByFunction", ctx, mock.MatchedBy(func(input *lambda.ListVersionsByFunctionInput) bool {
 		return *input.FunctionName == functionName && input.Marker == nil
 	})).Return(&lambda.ListVersionsByFunctionOutput{
@@ -131,7 +118,6 @@ func TestListAllVersions(t *testing.T) {
 		NextMarker: aws.String("marker1"),
 	}, nil)
 
-	// Second page
 	mockClient.On("ListVersionsByFunction", ctx, mock.MatchedBy(func(input *lambda.ListVersionsByFunctionInput) bool {
 		return *input.FunctionName == functionName && input.Marker != nil && *input.Marker == "marker1"
 	})).Return(&lambda.ListVersionsByFunctionOutput{
@@ -154,14 +140,10 @@ func TestListAllVersions(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test getAliasedVersions
 func TestGetAliasedVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
@@ -186,23 +168,17 @@ func TestGetAliasedVersions(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test cleanupFunction - keeps recent versions
 func TestCleanupFunctionKeepsRecentVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
-	// Mock ListVersionsByFunction
+	// Exactly versionsToKeep (3) numeric versions — nothing should be deleted
 	mockClient.On("ListVersionsByFunction", ctx, mock.Anything).Return(&lambda.ListVersionsByFunctionOutput{
 		Versions: []lambdaTypes.FunctionConfiguration{
 			{Version: aws.String("$LATEST")},
-			{Version: aws.String("5")},
-			{Version: aws.String("4")},
 			{Version: aws.String("3")},
 			{Version: aws.String("2")},
 			{Version: aws.String("1")},
@@ -210,34 +186,25 @@ func TestCleanupFunctionKeepsRecentVersions(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock ListAliases - no aliases
 	mockClient.On("ListAliases", ctx, mock.Anything).Return(&lambda.ListAliasesOutput{
 		Aliases:    []lambdaTypes.AliasConfiguration{},
 		NextMarker: nil,
 	}, nil)
 
-	// Only version 1 should be deleted (keeping 5 most recent: 5,4,3,2,1 - wait, that's 5 versions)
-	// Actually with versionsToKeep=5, we keep versions 5,4,3,2,1, so nothing gets deleted in this case
-	// Let's add more versions to test deletion
-
 	_, err := janitor.cleanupFunction(ctx, functionName)
 
 	assert.NoError(t, err)
+	mockClient.AssertNotCalled(t, "DeleteFunction")
 	mockClient.AssertExpectations(t)
 }
 
-// Test cleanupFunction - deletes old versions
 func TestCleanupFunctionDeletesOldVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
-	// Mock ListVersionsByFunction with 10 versions
 	mockClient.On("ListVersionsByFunction", ctx, mock.Anything).Return(&lambda.ListVersionsByFunctionOutput{
 		Versions: []lambdaTypes.FunctionConfiguration{
 			{Version: aws.String("$LATEST")},
@@ -255,15 +222,16 @@ func TestCleanupFunctionDeletesOldVersions(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock ListAliases - no aliases
 	mockClient.On("ListAliases", ctx, mock.Anything).Return(&lambda.ListAliasesOutput{
 		Aliases:    []lambdaTypes.AliasConfiguration{},
 		NextMarker: nil,
 	}, nil)
 
-	// Should delete versions 5,4,3,2,1 (keeping 10,9,8,7,6)
+	// Keep 10,9,8 (versionsToKeep=3); delete 7,6,5,4,3,2,1
 	mockClient.On("DeleteFunction", ctx, mock.MatchedBy(func(input *lambda.DeleteFunctionInput) bool {
-		return *input.FunctionName == functionName && (*input.Qualifier == "5" || *input.Qualifier == "4" || *input.Qualifier == "3" || *input.Qualifier == "2" || *input.Qualifier == "1")
+		q := *input.Qualifier
+		return *input.FunctionName == functionName &&
+			(q == "7" || q == "6" || q == "5" || q == "4" || q == "3" || q == "2" || q == "1")
 	})).Return(&lambda.DeleteFunctionOutput{}, nil)
 
 	_, err := janitor.cleanupFunction(ctx, functionName)
@@ -272,18 +240,13 @@ func TestCleanupFunctionDeletesOldVersions(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test cleanupFunction - protects aliased versions
 func TestCleanupFunctionProtectsAliasedVersions(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
-	// Mock ListVersionsByFunction
 	mockClient.On("ListVersionsByFunction", ctx, mock.Anything).Return(&lambda.ListVersionsByFunctionOutput{
 		Versions: []lambdaTypes.FunctionConfiguration{
 			{Version: aws.String("$LATEST")},
@@ -301,7 +264,6 @@ func TestCleanupFunctionProtectsAliasedVersions(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock ListAliases - version 3 is aliased as "prod"
 	mockClient.On("ListAliases", ctx, mock.Anything).Return(&lambda.ListAliasesOutput{
 		Aliases: []lambdaTypes.AliasConfiguration{
 			{Name: aws.String("prod"), FunctionVersion: aws.String("3")},
@@ -309,17 +271,17 @@ func TestCleanupFunctionProtectsAliasedVersions(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Should delete versions 5,4,2,1 but NOT 3 (aliased)
+	// Keep 10,9,8 (versionsToKeep=3) and 3 (aliased); delete 7,6,5,4,2,1
 	mockClient.On("DeleteFunction", ctx, mock.MatchedBy(func(input *lambda.DeleteFunctionInput) bool {
-		version := *input.Qualifier
-		return *input.FunctionName == functionName && (version == "5" || version == "4" || version == "2" || version == "1")
+		v := *input.Qualifier
+		return *input.FunctionName == functionName &&
+			(v == "7" || v == "6" || v == "5" || v == "4" || v == "2" || v == "1")
 	})).Return(&lambda.DeleteFunctionOutput{}, nil)
 
 	_, err := janitor.cleanupFunction(ctx, functionName)
 
 	assert.NoError(t, err)
 
-	// Ensure version 3 was NOT deleted
 	mockClient.AssertNotCalled(t, "DeleteFunction", ctx, mock.MatchedBy(func(input *lambda.DeleteFunctionInput) bool {
 		return input.Qualifier != nil && *input.Qualifier == "3"
 	}))
@@ -327,18 +289,13 @@ func TestCleanupFunctionProtectsAliasedVersions(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test cleanupFunction - never deletes $LATEST
 func TestCleanupFunctionNeverDeletesLatest(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 
-	// Mock ListVersionsByFunction
 	mockClient.On("ListVersionsByFunction", ctx, mock.Anything).Return(&lambda.ListVersionsByFunctionOutput{
 		Versions: []lambdaTypes.FunctionConfiguration{
 			{Version: aws.String("$LATEST")},
@@ -347,7 +304,6 @@ func TestCleanupFunctionNeverDeletesLatest(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock ListAliases
 	mockClient.On("ListAliases", ctx, mock.Anything).Return(&lambda.ListAliasesOutput{
 		Aliases:    []lambdaTypes.AliasConfiguration{},
 		NextMarker: nil,
@@ -357,7 +313,6 @@ func TestCleanupFunctionNeverDeletesLatest(t *testing.T) {
 
 	assert.NoError(t, err)
 
-	// Ensure $LATEST was never passed to DeleteFunction
 	mockClient.AssertNotCalled(t, "DeleteFunction", ctx, mock.MatchedBy(func(input *lambda.DeleteFunctionInput) bool {
 		return input.Qualifier != nil && *input.Qualifier == "$LATEST"
 	}))
@@ -365,14 +320,10 @@ func TestCleanupFunctionNeverDeletesLatest(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test deleteVersion
 func TestDeleteVersion(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 	version := "3"
@@ -388,14 +339,10 @@ func TestDeleteVersion(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test deleteVersion error handling
 func TestDeleteVersionError(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
-
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
+	janitor := newTestJanitor(mockClient)
 
 	functionName := "test-function"
 	version := "3"
@@ -409,16 +356,11 @@ func TestDeleteVersionError(t *testing.T) {
 	mockClient.AssertExpectations(t)
 }
 
-// Test Run method with multiple functions
 func TestRun(t *testing.T) {
 	ctx := context.Background()
 	mockClient := new(MockLambdaClient)
+	janitor := newTestJanitor(mockClient)
 
-	janitor := &main2.LambdaJanitor{
-		client: mockClient,
-	}
-
-	// Mock ListFunctions
 	mockClient.On("ListFunctions", ctx, mock.Anything).Return(&lambda.ListFunctionsOutput{
 		Functions: []lambdaTypes.FunctionConfiguration{
 			{FunctionName: aws.String("function1")},
@@ -427,7 +369,6 @@ func TestRun(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock for function1
 	mockClient.On("ListVersionsByFunction", ctx, mock.MatchedBy(func(input *lambda.ListVersionsByFunctionInput) bool {
 		return *input.FunctionName == "function1"
 	})).Return(&lambda.ListVersionsByFunctionOutput{
@@ -445,7 +386,6 @@ func TestRun(t *testing.T) {
 		NextMarker: nil,
 	}, nil)
 
-	// Mock for function2
 	mockClient.On("ListVersionsByFunction", ctx, mock.MatchedBy(func(input *lambda.ListVersionsByFunctionInput) bool {
 		return *input.FunctionName == "function2"
 	})).Return(&lambda.ListVersionsByFunctionOutput{

@@ -2,6 +2,8 @@ module aws-lambda-janitor
 
 go 1.26
 
+toolchain go1.26.0
+
 require (
 	github.com/aws/aws-cdk-go/awscdk/v2 v2.161.1
 	github.com/aws/aws-cdk-go/awscdklambdagoalpha/v2 v2.161.1-alpha.0
