@@ -14,6 +14,7 @@ permissions:
   contents: read    # Required to checkout code
 
 env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
   AWS_REGION: us-east-1
   GITHUB_ORG: no-org
   GITHUB_REPO: aws-lambda-janitor
